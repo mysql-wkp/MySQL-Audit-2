@@ -1,0 +1,51 @@
+Pre-built binaries in different package formats can be found on
+
+  http://www.mysql.com/downloads
+
+You can find information about how to install from a source distribution at
+
+  http://dev.mysql.com/doc/refman/5.7/en/source-installation.html
+
+The MySQL 5.7 Reference Manual is available on
+
+  http://dev.mysql.com/doc/refman/5.7/en/
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+
+   After MySQL 5.7 installed, the another one should be done. That's MySQL audit plugin, which is different from audit_log plugin. 
+Audit_log plugin is inherited from Percona. We port the source code from Percona to MySQL 5.7, and it will be compiled when MySQL 5.7
+be compiled. 
+   But, on the other sides, MySQL audit plugin is inherited from McAfee. It's a independent one.Therefore, the compilation 
+and installation is apart from MySQL 5.7 COMPILATION and INSTALLATION. here is the guidline of how to compile and install the MYSQL audit
+plugin. 
+
+
+PREREQUISITE:
+Before install the mysql-audit-sql plugin, you need to install mysql properly. After correct installation, the some libs will be used in next installation.
+
+how to build the mcafee/qiyi plugin:
+
+(0) At first, runing the bootstrap.sh script. if it has not the permission to excute, then run 'chmod +x bootstrap.sh'. 
+./bootstrap.sh
+
+(1) then set some environment variables for gcc. 
+
+CXX='gcc -static-libgcc' CC='gcc -static-libgcc'
+
+(2) to configure it. run the following scripts. Note: the prefix: --with-mysql and --with-mysql-installdir is mandatory. --with-mysql-installdir is used for
+next compilation step.
+
+./configure --with-mysql=/the_mysql_source_directory --with-mysql-libservices=/the_mysql_source_directory_install_dir/libservices/libmysqlservices.a --with-mysql-installdir=/the_mysql_source_directory_install_dir
+
+Taken mine as an instance. on my computer, i will run the command as following:
+
+CXX='gcc -static-libgcc' CC='gcc -static-libgcc' ./configure --with-mysql=/home/homli/work/mysql-server/ --with-mysql-libservices=/home/homli/work/mysql-server/build_cmk/libservices/libmysqlservices.a --with-mysql-plugindir=/home/homli/work/mysql-server/build_cmk/bin/lib/plugin --with-mysql-installdir=/home/homli/work/mysql-server/build_cmk/
+
+(3)  then run the following script to make and install the audit plugin.
+
+make && make install
+
+(4) If you meet some errors, it's okay and be patient to fix it on you own. 
+
+(5) At last, Maybe enjoy the DIY.
+
