@@ -153,4 +153,4 @@ The latency(95 percentile):
 
 ![](benchmark/latency.jpeg)
 
-How To Install and Configure this plugin. [How to...] (http:///plugin/audit_sql/install_and_configure/Howto.md)
+How To Install and Configure this plugin. [How to...] (https://github.com/RingsC/MySQL-Audit/tree/master/plugin/audit_sql/install_and_configure/Howto.md)
