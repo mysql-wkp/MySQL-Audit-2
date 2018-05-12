@@ -1,0 +1,35 @@
+#!/usr/bin/python
+
+def readmysql(param):
+	import sys
+	sys.path.append ("./conn")	
+
+	import conn
+	from conn import db_connection
+	
+	"this is a part of mysql operation."
+	cnx = db_connection()
+	cusr= cnx.cursor()
+	queryStr="show variables like '" + param +"'"
+	cusr.execute (queryStr)
+
+	for (res, value) in cusr :
+		return value
+		#print (value)
+
+	#close the cursor
+	cusr.close()
+
+
+	#close the connection in normal mode.
+	cnx.close()
+
+
+#if __name__ == "__main__":
+#	import sys
+#	if len(sys.argv) <= 1 :
+#		print ("please using the proper format. usage: python readinfo.mysql param_name")
+#		exit (1)
+#	value = readmysql (sys.argv[1])
+#	print (value)
+

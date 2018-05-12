@@ -1,0 +1,32 @@
+#!/usr/bin/python
+
+def updatemysql(param, value):
+	"this is a part of mysql operation."
+	import sys
+	sys.path.append ("./conn")
+
+	import conn
+	from conn import db_connection
+	
+	cnx= db_connection()
+	cusr= cnx.cursor()
+	queryStr="set global " + param +"='" + value +"'" 
+	cusr.execute (queryStr)
+	print ("execution ok, a new value has been set.")
+	
+	#close the cursor
+	cusr.close()
+
+
+	#close the connection in normal mode.
+	cnx.close()
+
+
+#if __name__ == "__main__":
+#	import sys
+#	if len(sys.argv) <= 1 :
+#		print ("please using the proper format. usage: python readinfo.mysql param_name")
+#		exit (1)
+#	value = readmysql (sys.argv[1])
+#	print (value)
+

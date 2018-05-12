@@ -1,0 +1,32 @@
+#!/usr/bin/python
+
+def db_connection():
+	import mysql.connector
+	from mysql.connector import errorcode
+	import ConfigParser	
+ 
+	#the connection info for do connecting; here we read the params from configure file.
+	try:
+		cp = ConfigParser.ConfigParser()
+		cp.read('mysql.cnf')
+
+		userName=cp.get("mysql","user")
+		passwordStr=cp.get("mysql","password")
+		portNum=cp.get("mysql","port")
+		dbName ="mysql"
+		hostName=cp.get("mysql","host")
+	except ConfigParser.Error as err:
+		print ("can not find mysql.cnf, pls check your env.")
+		exit(1)
+	
+	try:
+		cnx = mysql.connector.connect (user=userName, port=portNum, host=hostName, database=dbName)
+	except mysql.connector.Error as err:
+		if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
+			print("Something is wrong with your user name or password")
+		elif err.errno == errorcode.ER_BAD_DB_ERROR:
+			print("Database does not exist")
+		else:
+			print(err)
+
+	return cnx
