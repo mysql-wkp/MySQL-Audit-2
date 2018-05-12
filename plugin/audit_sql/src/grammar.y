@@ -32,7 +32,7 @@ static void TransYY_yyerror(YYLTYPE *yylloc, Trans_yyscan_t yyscanner,
 
 %define api.pure
 %pure-parser
-%expect 3
+%expect 1
 %locations
 %name-prefix="TransYY_yy"
 %lex-param		{Trans_yyscan_t yyscanner}
@@ -68,23 +68,27 @@ static void TransYY_yyerror(YYLTYPE *yylloc, Trans_yyscan_t yyscanner,
 	Function*      _function_;
 	FunctionArgList* _funcArgList_;
 	AggregateStmt*   _aggrStmt_;
+
+	JoinedTypes		_join_type_;
 }
 
+%type<_ival_> Iconst
+%type<_str_> Sconst
 %type<_astNode_> 	a_expr /*a_expr_list*/
 %type<_astNode_>	select_clause simple_select select_no_parens select_with_parens 
 %type<_astNode_>	stmtblock stmtmulti	stmt SelectStmt AlterStmt UpdateStmt DeleteStmt InsertStmt DropStmt SQLRuleStmt 
 %type <_targetEntry_> target_entry
-%type <_tableEntry_>  table_entry
+%type <_tableEntry_>  tables_ref table_entry joined_table
 %type<_astNode_>    target_opt func_arg_expr insert_target_stmt 
-%type<_astNode_>	CreateRuleStmt UpdateRuleStmt DropRuleStmt ActionOptStmt 
+%type<_astNode_>	CreateRuleStmt UpdateRuleStmt DropRuleStmt ActionOptStmt OptionStmt AliasStmt
 %type<_expr_>		condition_expr compare_expr set_clause
 %type<_exprList_>  set_expr_list 
 %type<_A_exprList_> a_expr_list insert_values_stmt 
 %type<_function_>	func_expr
 %type<_funcArgList_> func_arg_list
 
-%type<_aggrStmt_> aggregate_stmt aggregate_expr
-%type<_astNode_> orderby_expr groupby_expr having_expr limit_expr
+%type<_aggrStmt_> aggregate_stmt aggregate_expr 
+%type<_astNode_> orderby_expr groupby_expr having_expr limit_expr joined_qual 
 
 
 %type<_alterOpt_>    AlterStmt_Opt
@@ -95,22 +99,31 @@ static void TransYY_yyerror(YYLTYPE *yylloc, Trans_yyscan_t yyscanner,
 %type<_tableList_> from_list 
 %type<_fromStmt_>  from_stmt 
 %type<_whereStmt_> where_stmt where_current_stmt
-%type<_str_> Sconst 
+%type<_join_type_> joined_type;
 
 %token <_str_>	IDENT FCONST SCONST BCONST XCONST Op
 %token <_ival_>	ICONST PARAM
 %token			TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
 %token			LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 
-%token<_keyword_> NOT NULLS_P WITH BEGIN_P BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA FIRST_P LAST_P LIMIT NULLS_LA TIME ORDINALITY 
-					AS TEMPORARY TEMP INTO LOCAL UNLOGGED TABLE ALL GLOBAL  BY GROUP_P ABSOLUTE_P ABORT_P AND OR DROP ALTER
-					ADD_P COLUMN DISTINCT SUM AVG ORDER_P HAVING UPDATE SET VALUES INSERT OF_P CURRENT_P DELETE DATABASE ROLE 
-						CREATE RULE IGNORE KILLSESSION COMMIT_P ROLLBACK_P KEY_P FOREIGN PRIMARY CONSTRAINT REFERENCES USER
+%token<_keyword_> CROSS NULLS_P NOT WITH BEGIN_P BETWEEN IN_P IS IS_P INNER LIKE ILIKE SIMILAR NOT_LA FIRST_P LAST_P LIMIT  
+					TIME ORDINALITY NULLS_LA NULL_P
+						AS TEMPORARY TEMP INTO LOCAL UNLOGGED TABLE ALL GLOBAL  BY GROUP_P ABSOLUTE_P ABORT_P AND ON OR DROP ALTER
+							ADD_P COLUMN DISTINCT SUM AVG ORDER_P HAVING UPDATE SET VALUES INSERT OF_P CURRENT_P DELETE DATABASE ROLE 
+								CREATE RULE IGNORE KILLSESSION COMMIT_P ROLLBACK_P KEY_P FOREIGN PRIMARY CONSTRAINT REFERENCES USER JOIN
+									NATURE NOTNULL FULL LEFT RIGHT USING
 %token<_keyword_> SELECT FROM WHERE 
 
 %left AND
 %left OR
 
+%nonassoc	SET				/* see relation_expr_opt_alias */
+%left		UNION EXCEPT
+%left		INTERSECT
+%right		NOT
+%nonassoc	IS ISNULL NOTNULL	/* IS sets precedence for IS NULL, etc */
+%nonassoc	'<' '>' '=' LESS_EQUALS GREATER_EQUALS NOT_EQUALS
+%nonassoc	BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA
 %%
 stmtblock:	stmtmulti
 													{
@@ -262,7 +275,7 @@ from_stmt:	FROM from_list							{
 			;
 
 
-from_list:	from_list ',' table_entry				{
+from_list:	from_list ',' tables_ref				{
 														TableEntryList* tableList = NULL;
 														if ($1) {	
 															tableList = $1; 
@@ -272,24 +285,54 @@ from_list:	from_list ',' table_entry				{
 														tableList->addTableEntry($3) ;
 														$$ = tableList; 		
 													}
-			| table_entry							{
+			| tables_ref							{
 														TableEntryList* tableList = new TableEntryList ();
 														tableList->addTableEntry ($1);
 														$$ = tableList; 
 													}
-			| '(' table_entry ')'                   {
+			| '(' tables_ref ')' OptionStmt         {
 														TableEntryList* tableList = new TableEntryList ();
-														tableList->addTableEntry ($2) ;
+														TableEntry* tableEntry = (TableEntry*) $2;
+														tableList->setAliasName ($4);	
+														tableList->addTableEntry (tableEntry) ;
+														$$ = tableList;
+													}
+			| select_with_parens OptionStmt			{
+														TableEntryList* tableList = new TableEntryList ();
+														TableEntry* entry = new TableEntry ($1, NULL, TABLETYPES_SUBSELECT);
+														tableList->addTableEntry (entry) ;
+														tableList->setAliasName ($2);
 														$$ = tableList;
 													}
 			;
-table_entry : IDENT 								{
+
+tables_ref:	table_entry 							{
+														$$ = $1; 
+													}
+			| joined_table 							{//for joined_table
+														$$ = $1;
+													}
+/*
+			| '(' joined_table ')' OptionStmt			{//for joined_table with alias
+														//ASTNode* aliasName = new ASTNode ($5) ;	
+														JoinedTableEntry* joinedTablePtr = NULL; 
+														if ($2) {
+															joinedTablePtr = (JoinedTableEntry*) $2;
+															joinedTablePtr->setAliasName ($4);
+														}
+														//free($5);
+														$$ = joinedTablePtr ;
+													}
+*/
+			;
+				
+table_entry : IDENT 								{//We can improve the rules of alias option in future by using OptionStmt, but now we do not. 
 														ASTNode* tableName = new ASTNode ($1);
 														TableEntry* table = new TableEntry (tableName, NULL) ;
 														free ($1) ;
 														$$ = table; //to improve the memory allocation/free efficiency.
 													}
-			| IDENT '.' IDENT						{
+			| IDENT '.' IDENT						{	//for database.table mode.
 														char tbBuffer[128] = {0} ;
 														sprintf (tbBuffer,"%s.%s", $1, $3);//format: database.table
 														ASTNode* tableName = new ASTNode(tbBuffer);
@@ -298,6 +341,17 @@ table_entry : IDENT 								{
 														free ($1); 
 														free ($3);	
 														$$ = table;
+													}
+			| IDENT '.' IDENT '.' IDENT 			{ //for schema.database.table mode.
+                                                        char tbBuffer[128] = {0} ;
+                                                        sprintf (tbBuffer,"%s.%s.%s", $1, $3,$5);//format: database.table
+                                                        ASTNode* tableName = new ASTNode(tbBuffer);
+   
+                                                        TableEntry* table = new TableEntry (tableName, NULL);
+                                                        free ($1);
+                                                        free ($3);
+														free ($5);
+                                                        $$ = table;
 													}
 			| IDENT AS IDENT						{
 														ASTNode* tableName = new ASTNode ($1);
@@ -322,7 +376,78 @@ table_entry : IDENT 								{
 														$$ = table;
 													}
 			;
-
+joined_type:  LEFT 									{
+														$$ = JOINED_TABLE_LEFT_JOIN;
+													}
+			 | RIGHT 								{
+														$$ = JOINED_TABLE_RIGHT_JOIN ;
+													}
+			 | FULL                                 {
+														$$ = JOINED_TABLE_FULL_JOIN; 
+													}
+			 | INNER                                {
+														$$ = JOINED_TABLE_INNER_JOIN;
+													}
+			| NATURE 								{
+														$$ = JOINED_TABLE_NATURE_JOIN;
+													} //Here, we can use an empty entry for nature joni type. therefore, in joinedtable rules can simplified.
+			;
+				
+joined_qual:ON compare_expr 						{
+														JoinedQual* qual = new JoinedQual ($2, JOINEDQUAL_ON);
+														$$ = qual; 
+													}
+			| ON '(' compare_expr ')'				{
+														JoinedQual* qual = new JoinedQual ($3, JOINEDQUAL_ON);
+														$$ = qual; 
+													}
+			| USING compare_expr 					{
+														JoinedQual* qual = new JoinedQual ($2, JOINEDQUAL_USING);
+														$$ = qual; 
+													}
+			| USING '(' compare_expr ')'			{
+														JoinedQual* qual = new JoinedQual ($3, JOINEDQUAL_USING);
+														$$ = qual; 
+													}
+			;	
+joined_table:
+			table_entry CROSS JOIN table_entry    {
+														JoinedTableEntry* joinedTablePtr = new JoinedTableEntry ($1,$4,NULL, NULL) ;
+														joinedTablePtr->setJoinedType (JOINED_TABLE_CROSS_JOIN);
+														$$ = joinedTablePtr; 
+							   					  } 
+			| table_entry joined_type JOIN table_entry joined_qual  
+												 {
+														JoinedTableEntry* joinedTablePtr = new JoinedTableEntry ($1, $4, NULL, $5);
+														joinedTablePtr->setJoinedType ($2) ;
+														$$ = joinedTablePtr ;
+												  }
+			| table_entry JOIN table_entry joined_qual    
+												 {
+														JoinedTableEntry* joinedTablePtr = new JoinedTableEntry ($1, $3, NULL, $4);
+														joinedTablePtr->setJoinedType (JOINED_TABLE_INNER_JOIN);
+														$$ = joinedTablePtr; 	
+												 }
+			| joined_table joined_type JOIN joined_table joined_qual 
+												{
+                                                        JoinedTableEntry* joinedTablePtr = new JoinedTableEntry ($1, $4, NULL, $5);
+                                                        joinedTablePtr->setJoinedType ($2) ;
+                                                        $$ = joinedTablePtr ;
+												}
+			| joined_table joined_type JOIN table_entry joined_qual 
+												{
+                                                        JoinedTableEntry* joinedTablePtr = new JoinedTableEntry ($1, $4, NULL, $5);
+                                                        joinedTablePtr->setJoinedType ($2) ;
+                                                        $$ = joinedTablePtr ;
+												}
+			| table_entry joined_type JOIN joined_table joined_qual	
+												{
+                                                        JoinedTableEntry* joinedTablePtr = new JoinedTableEntry ($1, $4, NULL, $5);
+                                                        joinedTablePtr->setJoinedType ($2) ;
+                                                        $$ = joinedTablePtr ;
+												}
+			;
+	
 where_stmt : WHERE condition_expr 
 													{
 														WhereStmt* where = new WhereStmt (); 
@@ -331,6 +456,7 @@ where_stmt : WHERE condition_expr
 													}
 			|/*without where stmt*/					{ $$ = NULL ;}
 			;
+
 aggregate_stmt:
 			aggregate_expr 							{
 														$$ = $1; 
@@ -494,6 +620,21 @@ compare_expr:
 														ArithExpr* arith = new ArithExpr (oper, NULL, NULL);
 														$$ =arith;
 													}
+			| a_expr IS NULL_P	%prec IS			{
+														IsNullOper* oper = new IsNullOper ($1, NULL);
+														ArithExpr* arith = new ArithExpr (oper, NULL, NULL);
+														$$ = arith ; 
+													}
+			| a_expr IS NOT NULL_P %prec IS 		{
+														IsNotNullOper* oper  = new IsNotNullOper ($1, NULL);
+														ArithExpr* arith = new ArithExpr (oper, NULL, NULL);
+														$$ = arith;
+													}
+			| a_expr NOTNULL 						{
+                                                        IsNotNullOper* oper  = new IsNotNullOper ($1, NULL);
+                                                        ArithExpr* arith = new ArithExpr (oper, NULL, NULL);
+                                                        $$ = arith;
+													}
 			;
 
 a_expr_list:
@@ -528,7 +669,7 @@ a_expr:
 														free($3);
 														$$ = node;
 													}
-		| ICONST									{//integer const.
+		| Iconst									{//integer const.
 														ConstValue* node = new ConstValue ($1);
 														$$ = node ;
 													}
@@ -548,7 +689,7 @@ a_expr:
 														$$ = node;	
 													}
 		| XCONST									{//bit const 
-														ConstValue* node = new ConstValue ();
+														ConstValue* node = new ConstValue ($1);
 														$$ = node;
 													}
 		|'"' IDENT '"'								{
@@ -568,11 +709,12 @@ a_expr:
 														$$ = $1; 
 													}
 		;
-
-Sconst:	SCONST										{
-														$$ = $1;
-													};
-
+Sconst:
+		SCONST										{ $$ = $1;}
+		;			
+Iconst:
+		ICONST 										{ $$ = $1;}
+		;
 func_expr:
 		IDENT '(' ')'								{
 														ASTNode* funcName = new ASTNode($1) ;
@@ -825,6 +967,22 @@ ActionOptStmt:
 														$$ = opt; 
 													}
 		; 
+OptionStmt:
+		/*empty*/									{
+														/**/
+													}
+		| AliasStmt 								{	
+														$$ = $1; 
+													}
+		;
+AliasStmt:
+		AS IDENT									{
+														ASTNode* node = new ASTNode ($2);
+														OptAliasStmt* aliasStmt = new OptAliasStmt (node, true);
+														free ($2);
+														$$ = aliasStmt; 	
+													}
+		;
 %%
 /*
 	the error report. 

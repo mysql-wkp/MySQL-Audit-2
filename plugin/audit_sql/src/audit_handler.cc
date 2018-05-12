@@ -446,7 +446,7 @@ bool Audit_io_handler::handler_start_internal()
     	for(int index = 0; addr_list[index] != NULL; index++) //Here we should choose one at randomly.
 	    {
 			remote_ip = inet_ntoa(*addr_list[index]);
-			sql_print_error("remote ip: %s ",remote_ip);
+			sql_print_information("remote ip: %s ",remote_ip);
     	}
      
 		
@@ -465,7 +465,7 @@ bool Audit_io_handler::handler_start_internal()
 				//open failed.
 				return false; 
 			}
-			sql_print_error("remote ip: %s opened successfully.[udp]",remote_ip);
+			sql_print_information ("remote ip: %s opened successfully.[udp]",remote_ip);
 		}
 	}else {//socket type.
 		if (open(m_io_dest, m_log_io_errors) != 0)
@@ -1171,8 +1171,9 @@ ssize_t Audit_json_formatter::event_format(ThdSesData *pThdData, IWriter *writer
 			if (strcasestr (query_text, "show") || strcasestr(query_text,"shutdown")) { //not a sql command,just put it into.
 				yajl_add_string_val(gen, "pattern", query_text, query_len);
 			}else if (m_do_parsing_sql){ 
-            	Parser parser;
-	            SelectStmt* select = (SelectStmt*)parser.raw_parser(query_text);
+				Parser my_parser; 
+	            SelectStmt* select = (SelectStmt*)my_parser.raw_parser(query_text);
+				
     	        if (select) {
 					const char* patt = select->toString();
 					yajl_add_string_val(gen, "pattern", patt, strlen(patt));
@@ -1194,8 +1195,9 @@ ssize_t Audit_json_formatter::event_format(ThdSesData *pThdData, IWriter *writer
 			yajl_add_string_val(gen, "query", cmd, strlen(cmd));
 
 			if (m_do_parsing_sql) {
-				Parser parser;
-    	        SelectStmt* select = (SelectStmt*)parser.raw_parser(cmd);
+				Parser my_parser;
+    	        SelectStmt* select = (SelectStmt*)my_parser.raw_parser(cmd);
+
         	    if (select) {
             	    const char* patt = select->toString() ;
                 	yajl_add_string_val(gen, "pattern", patt, strlen(patt));

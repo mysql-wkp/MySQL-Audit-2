@@ -10,4 +10,6 @@ audit_2017_06_23_000000000000000002.log,
 ...
 audit_2017_06_24_000000000000000001.log
 
+A new catalog which name is 'sql_pattern', is created when db is doing boostrup. the srcipt of creating is in scripts forlder. There tow senariors: (1) the db instance is running already. we use the table creating script and run it in mysql console; (2)A new db instance, the catalog table will be created automatically. 
 
+When plugin run as firewall mode, all rules are all in sql_pattern. When db is starting, the rules read from sql_pattern will be loaded into a cache. Users execute a sql statment, a pattern of this sql statment is parsed, then do action described in sql_pattern; 

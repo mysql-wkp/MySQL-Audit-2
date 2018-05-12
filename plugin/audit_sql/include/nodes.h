@@ -47,6 +47,8 @@ public:
 		NODE_TYPE_JOIN_HASH,
 		NODE_TYPE_JOIN_NSETLOOP,
 
+		NODE_TYPE_JOIN_QUAL, //the qual statment of joined stmt.
+
 		NODE_TYPE_PLAN,
 		NODE_TYPE_RESULT_PLAN,
 		NODE_TYPE_PROJECTSET_PLAN,
@@ -82,7 +84,11 @@ public:
 		NODE_TYPE_MULTI_OPER,
 		NODE_TYPE_DIVIDE_OPER,		
 		NODE_TYPE_BETWEEN_OPER,		
-		NODE_TYPE_IN_OPER,		
+		NODE_TYPE_IN_OPER,
+		NODE_TYPE_ISNULL_OPER,		
+		NODE_TYPE_ISNOTNULL_OPER,		
+		NODE_TYPE_NOTNULL_OPER,
+		NODE_TYPE_BLANK_OPER,		
 		
 		NODE_TYPE_CONST,
 		NODE_TYPE_INT_CONST,
@@ -103,6 +109,9 @@ public:
 		NODE_TYPE_CREATERULE_STMT,
 		NODE_TYPE_UPDATERULE_STMT,
 		NODE_TYPE_DROPRULE_STMT,	
+	
+		NODE_TYPE_OPTION_STMT,
+		NODE_TYPE_OPTION_ALIAS_STMT,
 	
 		NODE_TYPE_EXECUTOR,	
 		NODE_TYPE_RESERVED_1,
@@ -176,6 +185,14 @@ typedef enum SQLStmtType {
 	
 	STMT_RESERVED_TYPE
 } SQLStmtType ;
+
+typedef enum JoinType {
+	JOINTYPE_NATURE =0,
+	JOINTYPE_CROSS,
+	JOINTYPE_INNER,
+	JOINTYPE_LEFT,
+	JOINTYPE_RIGHT
+}JoinType;
 
 class  SqlStmt :  public ASTNode {
 public:
@@ -265,23 +282,103 @@ private: //Here, we will use the a vector to store entries.
 	string sqlText_;
 } ;
 
+typedef enum TableTypes {
+	TABLETYPES_NORMAL =0, 
+	TABLETYPES_VIEW, 
+	TABLETYPES_JOINED,
+	TABLETYPES_DERIVED,
+	TABLETYPES_SUBSELECT
+} TableTypes ;
+
+typedef enum JoinedTypes {
+	JOINED_TABLE_INNER_JOIN =0,
+	JOINED_TABLE_CROSS_JOIN,
+	JOINED_TABLE_LEFT_JOIN,
+	JOINED_TABLE_RIGHT_JOIN,
+	JOINED_TABLE_NATURE_JOIN,
+	JOINED_TABLE_FULL_JOIN
+} JoinedTypes;
+
 class  TableEntry : public SqlStmt {
 public:
 	TableEntry ();
 	TableEntry (ASTNode* tableName, ASTNode* alias) ;
+	TableEntry (ASTNode* tableName, ASTNode* alias, TableTypes tableType) ;
 	virtual ~TableEntry ();
 	
 	virtual void optimize();	
 	virtual const char* getName () const ;
 	virtual const char* toString ();
 	virtual void release ();
+	virtual TableTypes getType () const { return table_type_ ; }
+	virtual void setType (TableTypes type) { table_type_ = type;} 
+	virtual void setAliasName (ASTNode* alias) { alias_ = alias; }
+	virtual const char* getAliasName () const { return alias_->toString(); }
 private:
 	//The length of table name will be read from conf in future.
 	//static const uint32 max_length_table_name= 128; 
 	string sqlText_ ;
 	ASTNode* tableName_;
 	ASTNode* alias_; 
+	TableTypes table_type_;
 };
+
+typedef enum JoinedQualType {
+	JOINEDQUAL_UNKNOWN =0,
+	JOINEDQUAL_USING,
+	JOINEDQUAL_ON
+} JoinedQualType ;
+
+class JoinedQual : public SqlStmt 
+{
+public:
+	JoinedQual ();
+	JoinedQual (ASTNode* qual, JoinedQualType qualtype) ;
+	virtual ~JoinedQual ();
+
+	virtual void setJoinedQualType (JoinedQualType qualType) { qual_type_ = qualType;}
+	virtual JoinedQualType getJoinedQualType () const {return qual_type_;}
+	
+	virtual void optimize ();
+	virtual void release (); 
+	virtual const char* toString();
+private:
+	ASTNode* qual_ ;
+	JoinedQualType qual_type_;		
+	string sqlText_ ; 
+} ;
+
+class JoinedTableEntry : public TableEntry {
+public:
+	JoinedTableEntry (); 
+	JoinedTableEntry (ASTNode* larg, ASTNode* rarg,  ASTNode* alias, ASTNode* qual);
+	JoinedTableEntry (ASTNode* larg, ASTNode* rarg,  ASTNode* alias, JoinedTypes joinedtype, ASTNode* qual);
+	~JoinedTableEntry ();
+	
+	virtual void optimize (); 
+	virtual void release();
+	virtual const char* toString();
+
+	virtual void setAliasName (ASTNode* alias);
+	virtual void setArgs (ASTNode* larg, ASTNode* rarg) { larg_ = larg; rarg_ = rarg; }
+	virtual void setJoinedType(JoinedTypes joinedtype) { joinedtype_ = joinedtype;}	
+
+	virtual ASTNode* getLarg () const {return larg_;}
+	virtual ASTNode* getRarg () const {return rarg_;}
+	virtual const char* getAliasName () const {
+		if (alias_) {
+			return alias_->toString();
+		}
+		return NULL; 
+	}
+private:
+	ASTNode* larg_, *rarg_; 
+	ASTNode* alias_;
+	ASTNode* qual_;
+	JoinedTypes joinedtype_ ;
+	string sqlText_; 
+};
+
 
 class  TableEntryList : public SqlStmt {
 public:
@@ -295,8 +392,12 @@ public:
 	virtual void optimize();
 	virtual const char* toString();
 	virtual void release (); 
+	virtual void setAliasName (ASTNode* alias) { alias_ = alias; }
+	virtual ASTNode* getAlias () const {return alias_;}
+	virtual const char* getAliasName () const { return alias_->toString();}
 private:
 	LIST* tables_;
+	ASTNode* alias_; 
 	string sqlText_; 
 };
 
@@ -534,6 +635,61 @@ public:
 private:
 	ASTNode* left_, *right_;	
 	string sqlText_ ;
+};
+
+class IsNullOper : public Operator {
+public:
+	IsNullOper ();
+	IsNullOper (ASTNode* left, ASTNode* right);
+	virtual ~IsNullOper (); 
+	
+	virtual void optimize (); 
+	virtual void release (); 
+	virtual const char* toString(); 
+private: 
+	ASTNode* left_, *right_ ; 
+	string sqlText_ ; 
+} ;
+
+class IsNotNullOper : public Operator {
+public:
+    IsNotNullOper ();
+    IsNotNullOper (ASTNode* left, ASTNode* right);
+    virtual ~IsNotNullOper ();
+   
+    virtual void optimize ();
+    virtual void release ();
+    virtual const char* toString();
+private:
+    ASTNode* left_, *right_ ;
+    string sqlText_ ;
+};
+
+class NotNullOper : public Operator {
+public:
+	NotNullOper(); 
+	NotNullOper (ASTNode* left, ASTNode* right);
+	virtual ~NotNullOper ();
+
+	virtual void optimize (); 
+	virtual void release (); 
+	virtual const char* toString();
+private:
+	ASTNode* left_, *right_; 
+	string sqlText_; 
+};
+
+class BlankOper : public Operator {
+public:
+	BlankOper () ;
+	BlankOper (ASTNode* param) ;
+	virtual ~BlankOper ();
+
+	virtual void optimize ();
+	virtual void release (); 
+	virtual const char* toString();
+private:
+	ASTNode* param_;
 };
 
 //The definit of executable experssion clause.
@@ -953,4 +1109,32 @@ public:
 private:
 	ASTNode* sql_ ;
 };
+
+class OptStmt : public SqlStmt {
+public:
+	OptStmt ();
+	virtual ~OptStmt ();
+	virtual void optimize (); 
+	virtual void release (); 	
+	virtual const char* toString();
+};
+
+class OptAliasStmt : public OptStmt {
+public:
+	OptAliasStmt (ASTNode* stmt, bool isAs = true);
+	~OptAliasStmt ();
+	virtual void optimize ();
+	virtual void release ();
+	virtual const char* toString();
+	
+	virtual void setOptStmt(ASTNode* stmt)  { stmt_ = stmt;}
+	virtual ASTNode* getOptStmt()const  { return stmt_;}
+private: 
+	bool isAs_ ;
+	ASTNode* stmt_;
+	string sqlText_ ;
+};
+
+
+
 #endif //__NODES_TYPES_H__

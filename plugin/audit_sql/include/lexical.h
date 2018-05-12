@@ -19,10 +19,18 @@ public:
 	Lex ();
 	virtual ~Lex() ;
 	static Trans_yyscan_t
-	init_scanner (const char* parseStr, Trans_yy_extra_type* yyext, const ScanKeyWord keywords, int num_kw) ; 
+	init_scanner (const char* parseStr, Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext, const ScanKeyWord keywords, int num_kw) ; 
+	static Trans_yyscan_t 
+	init_scanner_without_scannbuffer (Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext, const ScanKeyWord keywords, int num_kw);
+	
 	static void 
-	finish_scanner(Trans_yyscan_t yyscanner, Trans_yy_extra_type* yyextr) ;
+	finish_scanner(Trans_yyscan_t* yyscanner, Trans_yy_extra_type* yyextr) ;
 
+	static void  
+	setup_scannbuffer (const char* str, Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext);	
+	static void 
+	cleanup_scannbuffer (Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext);
+		
 	static void lex_yyerror(const char *message, Trans_yyscan_t yyscanner, Trans_yy_extra_type* yyextr, YYLTYPE* lloc);
 	static int lex_scanner_errposition(int location, Trans_yyscan_t yyscanner, Trans_yy_extra_type* yyextr, YYLTYPE* lloc);
 

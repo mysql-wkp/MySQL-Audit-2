@@ -1,27 +1,15 @@
 //use for loading mysql.sql_pattern catalog into cache.
-
-#ifdef _DEBUG
-	#ifdef DBUG_OFF
-	#undef DBUG_OFF
-	#endif 
-#endif 
-
-#if MYSQL_VERSION_ID <= 50700
-#include "sql_class.h"
-#endif 
+#include <mysql_version.h>
 #include "log.h"
 #include "sql_pattern.h"
 
-//for the name2pattern_cache
-static HASH name2pattern_cache; 
-#if MYSQL_VERSION_ID > 50700
-PSI_memory_key key_memory_sql_pattern_name2pattern ;
+#if MYSQL_VERSION_ID >=50700
+PSI_memory_key key_memory_sql_pattern;
 #endif 
 
+//for the name2pattern_cache
+static HASH name2pattern_cache; 
 static HASH pattern2name_cache;
-#if MYSQL_VERSION_ID > 50700
-PSI_memory_key key_memory_sql_pattern_pattern2name ;
-#endif 
 
 MEM_ROOT mem_audit;
 static mysql_rwlock_t THR_LOCK_sql_pattern;
@@ -80,8 +68,12 @@ bool sql_pattern_param_init (bool dont_read_table)
 #ifdef HAVE_PSI_INTERFACE
   init_sql_pattern_cache_psi_keys();
 #endif
-	init_sql_alloc(&mem_audit, ACL_ALLOC_BLOCK_SIZE, 0);
 
+#if MYSQL_VERSION_ID >= 50700
+	init_sql_alloc(key_memory_sql_pattern, &mem_audit, TABLE_ALLOC_BLOCK_SIZE, 0);
+#else 
+	init_sql_alloc(&mem_audit, ACL_ALLOC_BLOCK_SIZE, 0);
+#endif 
   /* init the mutex */
   if (mysql_rwlock_init(key_rwlock_THR_LOCK_sql_pattern, &THR_LOCK_sql_pattern))
 		return true; 
@@ -93,16 +85,12 @@ bool sql_pattern_param_init (bool dont_read_table)
 #else
   if (my_hash_init(&name2pattern_cache, system_charset_info, 512, 0, 0,
                    (my_hash_get_key) name2pattern_cache_get_key, 0, HASH_UNIQUE,
-                   key_memory_sql_pattern_name2pattern))
+                   key_memory_sql_pattern))
 #endif 
   {
     return_val= TRUE; /* we failed, out of memory? */
     goto end;
   }
-
-#if MYSQL_VERSION_ID > 50700
-  init_sql_alloc(key_memory_sql_pattern_name2pattern, &mem_audit, QUERY_ALLOC_BLOCK_SIZE, 0);
-#endif
 
   /* initialise our servers cache */
 #if MYSQL_VERSION_ID <= 50700
@@ -111,16 +99,12 @@ bool sql_pattern_param_init (bool dont_read_table)
 #else
   if (my_hash_init(&pattern2name_cache, system_charset_info, 512, 0, 0,
                    (my_hash_get_key) pattern2name_cache_get_key, 0, 0,
-                   key_memory_sql_pattern_pattern2name))
+                   key_memory_sql_pattern))
 #endif 
   {
     return_val= TRUE; /* we failed, out of memory? */
     goto end;
   }
-
-#if MYSQL_VERSION_ID > 50700
-  init_sql_alloc(key_memory_sql_pattern_pattern2name, &mem_audit, QUERY_ALLOC_BLOCK_SIZE, 0);
-#endif 
 
   if (dont_read_table)
     goto end;	
@@ -198,22 +182,26 @@ get_pattern_from_table_to_cache(THD* thd, TABLE* table)
   char *ptr;
   char * const blank= (char*)"";
 	
-  Name2Pattern* name2pattern = new Name2Pattern ();
-  Pattern2Name* pattern2name = new Pattern2Name (); 
-	
   //table->use_all_columns();
 
   /* get each field into the server struct ptr */
-#if MYSQL_VERSION_ID > 50700
+#if MYSQL_VERSION_ID >= 50700
   table->mark_column_used (thd,table->field[SQLPATTERN_FIELD_PATTERN_NAME], MARK_COLUMNS_READ);
 #endif 
   ptr= get_field(&mem_audit, table->field[SQLPATTERN_FIELD_PATTERN_NAME]);
+
+  //if we can not get data from catalog, then returen.	
+  if (!ptr || strlen(ptr)==0) 
+  	return TRUE ; 
+
+  Name2Pattern* name2pattern = new Name2Pattern ();
+  Pattern2Name* pattern2name = new Pattern2Name (); 
 
   name2pattern->pattern_name = ptr ? strdup (ptr) : blank;
   name2pattern->pattern_name_len = strlen (name2pattern->pattern_name); //if we use same pointer to patern_name, in hash,it will be changed by splitting.
   pattern2name->pattern_name = strdup( name2pattern->pattern_name );  
 	
-#if MYSQL_VERSION_ID > 50700
+#if MYSQL_VERSION_ID >= 50700
   table->mark_column_used (thd,table->field[SQLPATTERN_FIELD_PATTERN], MARK_COLUMNS_READ);
 #endif 
   ptr= get_field(&mem_audit, table->field[SQLPATTERN_FIELD_PATTERN]);
@@ -222,13 +210,13 @@ get_pattern_from_table_to_cache(THD* thd, TABLE* table)
   pattern2name->sql_pattern_str = strdup (name2pattern->sql_pattern_str) ;
   pattern2name->sql_pattern_str_len = strlen (pattern2name->sql_pattern_str) ;
 
-#if MYSQL_VERSION_ID > 50700
+#if MYSQL_VERSION_ID >= 50700
   table->mark_column_used (thd,table->field[SQLPATTERN_FIELD_MD5], MARK_COLUMNS_READ);
 #endif 
   ptr= get_field(&mem_audit, table->field[SQLPATTERN_FIELD_MD5]);
   name2pattern->md5Str  = ptr ? strdup(ptr) : blank;
 
-#if MYSQL_VERSION_ID > 50700
+#if MYSQL_VERSION_ID >= 50700
   table->mark_column_used (thd,table->field[SQLPATTERN_FIELD_SQLACTION], MARK_COLUMNS_READ);
 #endif 
   ptr= get_field(&mem_audit, table->field[SQLPATTERN_FIELD_SQLACTION]);
@@ -281,7 +269,6 @@ end:
   return (return_val);
 }
 
-
 bool load_sql_pattern(THD* thd)
 {
   TABLE_LIST tables[1];
@@ -289,7 +276,7 @@ bool load_sql_pattern(THD* thd)
 
   tables[0].init_one_table("mysql", 5, "sql_pattern", 11, "sql_pattern", TL_READ);
 #if MYSQL_VERSION_ID <= 50700
-  if (open_and_lock_tables(thd, tables, false, 0x0800)){
+  if (open_normal_and_derived_tables(thd, tables, 0)){
      /*
        Execution might have been interrupted; only print the error message
        if an error condition has been raised.

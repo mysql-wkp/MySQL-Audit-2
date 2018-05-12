@@ -24,15 +24,14 @@ Lex::~Lex ()
 
 
 Trans_yyscan_t
-Lex::init_scanner (const char* parseStr, Trans_yy_extra_type* yyext, const ScanKeyWord keywords, int num_kw)
+Lex::init_scanner (const char* parseStr, Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext, const ScanKeyWord keywords, int num_kw)
 {
     size_t      slen = strlen(parseStr);
-    yyscan_t    scanner;
 
-    if (::Trans_yylex_init(&scanner) != 0)
+    if (::Trans_yylex_init(lex_scanner) != 0)
         printf("error...\n");//elog(ERROR, "yylex_init() failed: %m");
 
-    Trans_yyset_extra(yyext, scanner);
+    Trans_yyset_extra(yyext, *lex_scanner);
 
     yyext->keywords_ = KeyWord::getScanKeyWord();
     yyext->keywords_num_ = KeyWord::getKeyWordsNumber() ;
@@ -48,20 +47,63 @@ Lex::init_scanner (const char* parseStr, Trans_yy_extra_type* yyext, const ScanK
     yyext->scanbuffer_len_ = slen;
     memcpy(yyext->scanbuffer_, parseStr, slen);
     yyext->scanbuffer_[slen] = yyext->scanbuffer_[slen + 1] = YY_END_OF_BUFFER_CHAR;
-    Trans_yy_scan_buffer(yyext->scanbuffer_, slen + 2, scanner);
+    Trans_yy_scan_buffer(yyext->scanbuffer_, slen + 2, *lex_scanner);
 
     /* initialize literal buffer to a reasonable but expansible size */
     yyext->literalalloc_ = 1024;
     yyext->literalbuffer_ = (char *) malloc(yyext->literalalloc_);
     yyext->literallen_ = 0;
 
-    return scanner;
+    return *lex_scanner;
+}
+
+Trans_yyscan_t
+Lex::init_scanner_without_scannbuffer(Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext, const ScanKeyWord keywords, int num_kw)
+{
+    if (::Trans_yylex_init(lex_scanner) != 0)
+        printf("error...\n");//elog(ERROR, "yylex_init() failed: %m");
+
+    Trans_yyset_extra(yyext, *lex_scanner);
+
+    yyext->keywords_ = KeyWord::getScanKeyWord();
+    yyext->keywords_num_ = KeyWord::getKeyWordsNumber() ;
+
+    yyext->backslash_quote_ = BACKSLASH_QUOTE_SAFE_ENCODING;
+    yyext->escape_string_warning_ = true;
+    yyext->standard_conforming_strings_ = true;
+
+    /* initialize literal buffer to a reasonable but expansible size */
+    yyext->literalalloc_ = 1024;
+    yyext->literalbuffer_ = (char *) malloc(yyext->literalalloc_);
+    yyext->literallen_ = 0;
+
+    return *lex_scanner;
+}
+
+void Lex::setup_scannbuffer (const char* str, Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext)
+{
+	size_t      slen = strlen (str);
+    /*
+     * Make a scan buffer with special termination needed by flex.
+     */
+    yyext->scanbuffer_ = (char *) malloc(slen + 2);
+	memset(yyext->scanbuffer_, 0x0, slen + 2);
+    yyext->scanbuffer_len_ = slen;
+    memcpy(yyext->scanbuffer_, str, slen);
+    yyext->scanbuffer_[slen] = yyext->scanbuffer_[slen + 1] = YY_END_OF_BUFFER_CHAR;
+    Trans_yy_scan_buffer(yyext->scanbuffer_, slen + 2, *lex_scanner);
+}
+
+void 
+Lex::cleanup_scannbuffer (Trans_yyscan_t* lex_scanner, Trans_yy_extra_type* yyext)
+{
+	Trans_yypop_buffer_state (*lex_scanner);	
 }
 
 void
-Lex::finish_scanner(Trans_yyscan_t yyscanner, Trans_yy_extra_type* yyextr)
+Lex::finish_scanner(Trans_yyscan_t* yyscanner, Trans_yy_extra_type* yyextr)
 {
-	::Trans_yylex_destroy (yyscanner);
+	::Trans_yylex_destroy (*yyscanner);
     //if (yyextr->scanbuffer_len_ >= 8192)
         free(yyextr->scanbuffer_);
 		yyextr->scanbuffer_ = NULL; 

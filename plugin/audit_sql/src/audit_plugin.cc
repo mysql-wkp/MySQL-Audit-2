@@ -13,6 +13,7 @@
  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA */
 
 #include "mysql_inc.h"
+#include <mysql_version.h>
 
 #if MYSQL_VERSION_ID <= 50700
 #include "my_global.h"
@@ -127,6 +128,8 @@ static my_bool uninstall_plugin_enable = FALSE;
 static my_bool validate_checksum_enable = FALSE;
 static my_bool offsets_by_version_enable = FALSE;
 static my_bool validate_offsets_extended_enable = FALSE;
+static my_bool parsing_sql_enable = FALSE; 
+
 static char *offsets_string = NULL;
 static char *checksum_string = NULL;
 static int delay_ms_val = 0;
@@ -316,6 +319,7 @@ static MYSQL_THDVAR_STR(peer_info,
 										obj = NULL; 	\
 									}
 
+//Parser* m_parser = NULL; 
 THDPRINTED *GetThdPrintedList(THD *thd)
 {
 	THDPRINTED *pThdPrintedList= (THDPRINTED*) THDVAR(thd, is_thd_printed_list);
@@ -896,7 +900,11 @@ static int  audit_simple_execute (THD* thd, Parser_state* parser_state, const ch
                                      thd->query().length);
     parser_state->m_lip.found_semicolon= NULL;
   }
-  DBUG_RETURN(err || error);
+  #if MYSQL_VERSION_ID <=50700
+	  DBUG_RETURN(err || error);
+  #else
+	  DBUG_RETURN(err);
+  #endif 
 }
 #endif //endof simple_execute def
 
@@ -1582,25 +1590,38 @@ static void audit_mysql_parse(THD *thd, Parser_state *parser_state)
 #endif 
 {
 	DBUG_ENTER("audit_mysql_parse");
-#if MYSQL_VERSION_ID <= 50700
-#else
-  	DBUG_PRINT("audit_mysql_parse", ("query: '%s'", thd->query().str));
-#endif    
 	if (!isMapInitialized()) {
     	if (sql_pattern_param_init (false)) {
             sql_print_error(get_text("unable to init pattern2name or name2pattern cache. Aborting."));
+			Diagnostics_area **stmt_da = ((Diagnostics_area **) (((unsigned char *) thd)
+					                        + Audit_formatter::thd_offsets.stmt_da));
+			
+			Diagnostics_area* da_ptr = *stmt_da; 
+			#if MYSQL_VERSION_ID <= 50700
+				da_ptr->set_error_status (Diagnostics_area::DA_ERROR, "   unable to init cache." ,"Error", NULL); 
+			#else
+				da_ptr->set_error_status (Diagnostics_area::DA_ERROR, "   unable to init cache." ,"Error"); 
+			#endif 
             DBUG_VOID_RETURN;
         }
    
         if (load_sql_pattern (thd)){
             sql_print_error(get_text("unable to load data into pattern2name or name2pattern cache. Aborting."));
+			Diagnostics_area **stmt_da = ((Diagnostics_area **) (((unsigned char *) thd)
+					                        + Audit_formatter::thd_offsets.stmt_da));
+			
+			Diagnostics_area* da_ptr = *stmt_da; 
+			#if MYSQL_VERSION_ID <=50700
+				da_ptr->set_error_status (Diagnostics_area::DA_ERROR, "   unable to load data from sql_pattern into cache." ,"Error", NULL); 
+			#else
+				da_ptr->set_error_status (Diagnostics_area::DA_ERROR, "   unable to load data from sql_pattern into cache." ,"Error"); 
+			#endif 
             DBUG_VOID_RETURN;
         }
-    }    
-
+    }
+    
 	ThdSesData thd_data(thd);
 	do_delay(& thd_data);	
-	int res; 
 #if  defined(MARIADB_BASE_VERSION)
 	if (Audit_formatter::thd_killed(thd) >= KILL_CONNECTION)
 #else
@@ -1615,14 +1636,13 @@ static void audit_mysql_parse(THD *thd, Parser_state *parser_state)
 		case 1:
 			// hot patch function were removed and we call the real execute (restored)
 #if MYSQL_VERsION_ID <= 50700
-			res = mysql_execute_command(thd);
+			mysql_execute_command(thd);
 #else
-			res = mysql_execute_command(thd, true);
+			mysql_execute_command(thd, true);
 #endif 
 			break;
 		case 2:
 			// denied uninstall  plugin
-			res = 1; 
 			break;
 		default: {
 			// everything else
@@ -1646,8 +1666,8 @@ static void audit_mysql_parse(THD *thd, Parser_state *parser_state)
 #endif
 				DBUG_VOID_RETURN;
 			} 
-			Parser parser;
-		    ASTNode* sql = parser.raw_parser(query);
+			Parser my_parser;
+		    ASTNode* sql = my_parser.raw_parser(query);
 		    if (sql) {
 				if (sql->getNodeType() == ASTNode::NODE_TYPE_CREATERULE_STMT ||
 					sql->getNodeType() == ASTNode::NODE_TYPE_UPDATERULE_STMT ||
@@ -1756,7 +1776,11 @@ static int audit_mysql_execute_command(THD *thd)
 			break;
 		default:
 			// everything else
+#if defined(MARIADB_BASE_VERSION) || MYSQL_VERSION_ID < 50709
 			res = trampoline_mysql_execute_command(thd);
+#else
+			res = trampoline_mysql_execute_command(thd, false);
+#endif 
 		}
 	}
 
@@ -2744,7 +2768,7 @@ static void max_seg_log_file_size_update (THD* thd, struct st_mysql_sys_var* var
 	return ;
 }
 
-int install_mysql_parse_hot_function ()
+void install_mysql_parse_hot_function ()
 {
 	void* target_parse_func = NULL; 
 	if (trampoline_mysql_parse_size ==0){
@@ -2760,10 +2784,10 @@ int install_mysql_parse_hot_function ()
     	if (do_hot_patch((void **)&trampoline_mysql_parse, &trampoline_mysql_parse_size,
                 target_parse_func, (void *)audit_mysql_parse,  "mysql_parse"))
     	{
-       		return (1);
+       		//return (1);
    	 	}
 	}
-    return (0);
+    //return (0);
 }
 /*
  * Initialize the plugin installation.
@@ -2797,7 +2821,11 @@ static int audit_plugin_init(void *p)
 			server_version);
 
 	// setup our offsets.
-
+#if 0	
+	if (!m_parser) {
+		m_parser = new Parser ();
+	}
+#endif 
 	if (setup_offsets() != 0)
 	{
 		DBUG_RETURN(1);
@@ -2946,20 +2974,12 @@ static int audit_plugin_init(void *p)
 
 	// hot patch stuff
 	void * target_function = NULL;
-	void* target_parse_func = NULL; 
-#if defined(MARIADB_BASE_VERSION) || MYSQL_VERSION_ID < 50709
+		
+#if defined(MARIADB_BASE_VERSION) ||  MYSQL_VERSION_ID < 50709
 	target_function = (void*) mysql_execute_command;
-
-	//the mysql_parse function.
-	target_parse_func = (void*)
-		(void (*)(THD *thd, char* rawbuff, uint length, Parser_state *parser_state)) &mysql_parse;
 #else
 	target_function = (void*)
 		(int (*)(THD *thd, bool first_level)) &mysql_execute_command;
-
-	//the mysql_parse function.
-	target_parse_func = (void*)
-		(void (*)(THD *thd, Parser_state *parser_state)) &mysql_parse;
 #endif
 
 	if (do_hot_patch((void **)&trampoline_mysql_execute_command, &trampoline_mysql_execute_size,
@@ -2967,14 +2987,6 @@ static int audit_plugin_init(void *p)
 	{
 		DBUG_RETURN(1);
 	}
-
-#if 0 //the default is audit mode.
-	if (do_hot_patch((void **)&trampoline_mysql_parse, &trampoline_mysql_parse_size,
-				target_parse_func, (void *)audit_mysql_parse,  "mysql_parse"))
-	{
-		DBUG_RETURN(1);
-	}
-#endif 
 
 #if MYSQL_VERSION_ID < 50600
 	if (do_hot_patch((void **)&trampoline_log_slow_statement, &trampoline_log_slow_statement_size,
@@ -3073,7 +3085,12 @@ static int audit_plugin_deinit(void *p)
 	sql_print_information(get_text("%s deinit"), log_prefix);
 	remove_hot_functions();
 	sql_pattern_param_deinit (true) ;
-	
+#if 0
+	if (m_parser) {
+		delete m_parser ;
+		m_parser = NULL; 
+	}
+#endif	
 	DBUG_RETURN(0);
 }
 
@@ -3132,6 +3149,20 @@ static void json_log_socket_enable(THD *thd, struct st_mysql_sys_var *var,
 	{
 		json_socket_handler.set_enable(json_socket_handler_enable);
 	}
+}
+static void parsing_sql_enable_func (THD *thd, struct st_mysql_sys_var *var,
+		void *tgt, const void *save)
+{
+	parsing_sql_enable = *(my_bool *) save ? TRUE : FALSE;
+	json_formatter.m_do_parsing_sql = (parsing_sql_enable) ? TRUE : FALSE ;  
+	
+	if (parsing_sql_enable) {
+		if (function_type == FUNC_FIREWALL || function_type == FUNC_BOTH)
+			install_mysql_parse_hot_function(); 
+
+	} else //no do parsing sql statement.
+		remove_mysql_parse_hot_function() ; 
+		
 }
 
 static void dns_svr_addr_update (THD *thd, struct st_mysql_sys_var *var, void *tgt, const void *save)
@@ -3220,20 +3251,23 @@ static void function_type_update( THD *thd, struct st_mysql_sys_var *var, void *
     }else
         strncpy (function_type_buffer, "audit", strlen("audit"));
 	function_type_string = function_type_buffer;
-		
-	if (strncasecmp (function_type_buffer, "audit", strlen("audit")) == 0){
+
+	//do type checking, then set the proper target function.		
+	if (strncasecmp (function_type_buffer, "audit", strlen("audit")) == 0 ) {
 		function_type = FUNC_AUDIT ;
-		remove_mysql_parse_hot_function (); 
-	}
-	else if (strncasecmp (function_type_buffer, "firewall", strlen("firewall")) == 0){
-		function_type  = FUNC_FIREWALL; 		
-		install_mysql_parse_hot_function ();
+		
+		//(json_formatter.m_do_parsing_sql == TRUE)? : install_mysql_parse_hot_function() ;
+		//		remove_mysql_parse_hot_function (); 
+	}else if (strncasecmp (function_type_buffer, "firewall", strlen("firewall")) == 0){
+		function_type  = FUNC_FIREWALL; 	
+		(json_formatter.m_do_parsing_sql == TRUE)? 	install_mysql_parse_hot_function () :
+				remove_mysql_parse_hot_function(); 
 	}
 	else if (strncasecmp (function_type_buffer, "both", strlen("both")) == 0) {
 		function_type = FUNC_BOTH; 
-		install_mysql_parse_hot_function ();
-	}
-	else {
+		(json_formatter.m_do_parsing_sql == TRUE)? 	install_mysql_parse_hot_function () :
+				remove_mysql_parse_hot_function(); 
+	}else {
 		function_type = FUNC_AUDIT;
 		remove_mysql_parse_hot_function (); 
 	}
@@ -3408,7 +3442,7 @@ static MYSQL_SYSVAR_STR(function_type, function_type_string,
 
 static MYSQL_SYSVAR_BOOL(parsing_sql, json_formatter.m_do_parsing_sql,
              PLUGIN_VAR_RQCMDARG,
-        "Do we parse the sql?. Enable|Disable. Default disabled.", NULL, NULL, 0);
+        "Do we parse the sql?. Enable|Disable. Default disabled.", NULL, parsing_sql_enable_func, 0);
 
 static const char *before_after_names[] =
 {
@@ -3495,9 +3529,9 @@ mysql_declare_plugin(audit_plugin)
 	audit_plugin_init, /* Plugin Init */
 	audit_plugin_deinit, /* Plugin Deinit */
 	0x0100 /* 1.0 */,
-	audit_status, /* status variables                */
-	audit_system_variables, /* system variables                */
-	NULL /* config options                  */
+	audit_status, /* status variables*/
+	audit_system_variables, /* system variables*/
+	NULL /* config options*/
 }
 mysql_declare_plugin_end;
 

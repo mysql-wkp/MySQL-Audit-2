@@ -6,8 +6,7 @@
 #include "keycache.h"
 
 #if MYSQL_VERSION_ID <= 50700
-extern bool open_and_lock_tables(THD *thd, TABLE_LIST *tables,
-                                 bool derived, uint flags) ;
+extern bool open_normal_and_derived_tables(THD *thd, TABLE_LIST *table_list, uint flags);
 extern void close_mysql_tables(THD *thd);
 extern bool trans_commit_stmt(THD *thd) ;
 #else 

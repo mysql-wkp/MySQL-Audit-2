@@ -2,6 +2,9 @@
 	the definition of nodes types.
 	path:src/types/nodes.cpp
 **/
+
+#include <mysql_version.h>
+
 #if MYSQL_VERSION_ID <= 50700
 #include "my_global.h"
 #include <my_dbug.h>
@@ -164,6 +167,10 @@ const char* TargetEntry::toString()
 		} break; 
 	}
 	
+	if (alias_) {
+		sqlText_ +=" AS ";
+		sqlText_ += alias_->toString();
+	}	
 	return sqlText_.c_str();
 }
 void TargetEntry::release()
@@ -251,10 +258,14 @@ void TargetList::optimize()
 	DBUG_ASSERT(false);
 }
 
-TableEntry::TableEntry():tableName_(NULL), alias_(NULL), SqlStmt (NODE_TYPE_TABLEENTRY)
+TableEntry::TableEntry():tableName_(NULL), alias_(NULL), table_type_(TABLETYPES_NORMAL), SqlStmt (NODE_TYPE_TABLEENTRY)
 {
 }
-TableEntry::TableEntry(ASTNode* tablename, ASTNode* alias):tableName_(tablename), alias_(alias), SqlStmt (NODE_TYPE_TABLEENTRY)
+TableEntry::TableEntry(ASTNode* tablename, ASTNode* alias):tableName_(tablename), alias_(alias), table_type_(TABLETYPES_NORMAL), SqlStmt (NODE_TYPE_TABLEENTRY)
+{
+}
+TableEntry::TableEntry (ASTNode* tablename, ASTNode* alias, TableTypes tabletype) : tableName_ (tablename), alias_(alias), table_type_ (tabletype),
+																						SqlStmt(NODE_TYPE_TABLEENTRY) 
 {
 }
 TableEntry::~TableEntry()
@@ -292,7 +303,137 @@ void TableEntry::release()
 	}
 }
 
-TableEntryList::TableEntryList():tables_(NULL), SqlStmt (NODE_TYPE_TABLEENTRY_LIST)
+JoinedQual::JoinedQual():qual_(NULL), qual_type_(JOINEDQUAL_UNKNOWN),SqlStmt(NODE_TYPE_JOIN_QUAL) 
+{
+}
+JoinedQual::JoinedQual(ASTNode* qual, JoinedQualType qual_type): qual_(qual), qual_type_(qual_type), SqlStmt(NODE_TYPE_JOIN_QUAL) 
+{
+}
+JoinedQual::~JoinedQual()
+{
+}
+void JoinedQual::optimize() 
+{
+	assert (false) ;
+}
+const char* JoinedQual::toString()
+{
+	if (qual_type_ == JOINEDQUAL_USING){
+		sqlText_ += " USING ";
+	} else if (qual_type_ == JOINEDQUAL_ON) {
+		sqlText_ += " ON " ;
+	}
+	if (qual_)
+		sqlText_ += qual_->toString();
+	return sqlText_.c_str();	
+}
+void JoinedQual::release()
+{
+	if (qual_) {
+		qual_->release();
+		delete qual_ ;
+		qual_ = NULL ;
+	}
+}
+
+JoinedTableEntry::JoinedTableEntry():larg_(NULL), rarg_(NULL), alias_(NULL),qual_(NULL),joinedtype_(JOINED_TABLE_INNER_JOIN),TableEntry(NULL, NULL, TABLETYPES_JOINED)
+{
+}
+JoinedTableEntry::JoinedTableEntry(ASTNode* larg, ASTNode* rarg, ASTNode* alias, ASTNode* qual):larg_(larg), rarg_(rarg),
+													alias_(alias), qual_(qual), TableEntry (NULL, alias, TABLETYPES_JOINED)
+{
+}
+
+JoinedTableEntry::JoinedTableEntry(ASTNode* larg, ASTNode* rarg, ASTNode* alias, JoinedTypes joinedtype, ASTNode* qual):larg_(NULL), rarg_(NULL),
+													alias_(alias), joinedtype_(joinedtype), qual_(qual),TableEntry (NULL, alias, TABLETYPES_JOINED)
+{
+}
+JoinedTableEntry::~JoinedTableEntry()
+{
+}
+
+void JoinedTableEntry::optimize()
+{
+	assert (false);
+}
+
+void JoinedTableEntry::release()
+{
+	if (larg_) {
+		larg_->release();
+		delete larg_;
+		larg_ = NULL; 
+	}
+	
+	if (rarg_) {
+		rarg_->release();
+		delete rarg_;
+		rarg_ = NULL; 
+	}
+		
+    if (alias_) {
+        alias_->release();
+        delete alias_ ;
+        alias_ = NULL;
+    }
+
+	if (qual_) {
+		qual_->release();
+		delete qual_ ;
+		qual_ = NULL; 			
+	}
+}
+void JoinedTableEntry::setAliasName (ASTNode* alias) 
+{
+	alias_ = alias;	
+}
+
+const char* JoinedTableEntry::toString()
+{
+	if (larg_) {
+		sqlText_ += larg_->toString() ;
+	}
+	
+	switch (joinedtype_) {
+		case JOINED_TABLE_INNER_JOIN: 
+					sqlText_ += " INNER JOIN "; 
+					break; 
+		case JOINED_TABLE_CROSS_JOIN: 
+					sqlText_ += " CROSS JOIN ";
+					break;
+		case JOINED_TABLE_LEFT_JOIN:
+					sqlText_ += " LEFT JOIN ";
+					break; 
+		case JOINED_TABLE_RIGHT_JOIN:
+					sqlText_ += " RIGHT JOIN ";
+					break; 
+		case JOINED_TABLE_NATURE_JOIN: 
+					sqlText_ += " NATURE JOIN ";
+					break; 
+		case JOINED_TABLE_FULL_JOIN:
+					sqlText_ += " FULL JOIN ";
+					break; 
+		default:
+					sqlText_ += "INNER JOIN "; 
+					break; 
+	}	
+	
+	if (rarg_) {
+		sqlText_ += rarg_->toString();
+	}
+		
+	if (qual_) {
+		sqlText_ += qual_->toString();
+	}		
+	
+	if (alias_) {
+		sqlText_ += alias_->toString();
+	}
+	
+	return sqlText_.c_str();
+}
+
+TableEntryList::TableEntryList():tables_(NULL), alias_(NULL), SqlStmt (NODE_TYPE_TABLEENTRY_LIST)
 {
 }
 TableEntryList::~TableEntryList()
@@ -321,12 +462,16 @@ const char* TableEntryList::toString()
 {
 	string tablename ;
 	LIST* start = tables_;
+	if (alias_) {
+		sqlText_ = "( ";
+	}
 	if (start) {
+		
 		TableEntry* table = (TableEntry*) start->data; 
 		DBUG_ASSERT(table->getNodeType() == NODE_TYPE_TABLEENTRY);
 		tablename = table->toString() ;
 		
-		sqlText_ = tablename + sqlText_ ;
+		sqlText_ += tablename + sqlText_ ;
 	}
 
 	start = start->next; 
@@ -340,8 +485,13 @@ const char* TableEntryList::toString()
  	
 		sqlText_ = tablename + sqlText_ ;
 	}
-
 	sqlText_ = " " + sqlText_ ;
+	
+	if (alias_) {
+		sqlText_ += " )" ;
+		sqlText_ += alias_->toString();
+	}
+	
 	return sqlText_.c_str();
 }
 void TableEntryList::release()
@@ -356,7 +506,14 @@ void TableEntryList::release()
 	}
 	
 	list_free(tables_, 0); //free the list itself.
+
+	if (alias_) {
+		alias_->release();
+		delete alias_; 
+		alias_ = NULL;
+	}
 }
+
 IntoStmt::IntoStmt()
 {
 }
@@ -413,7 +570,7 @@ void FromStmt::release()
 	}
 }
 
-WhereStmt::WhereStmt(): SqlStmt (NODE_TYPE_WHERE_STMT)
+WhereStmt::WhereStmt(): expr_(NULL), SqlStmt (NODE_TYPE_WHERE_STMT)
 {
 }
 
@@ -445,10 +602,10 @@ void WhereStmt::release()
 	}
 }
 
-AggregateStmt::AggregateStmt() : order_(NULL), group_(NULL), having_(NULL), SqlStmt (NODE_TYPE_AGGREGATE_STMT)
+AggregateStmt::AggregateStmt() : order_(NULL), group_(NULL), having_(NULL), limit_(NULL), SqlStmt (NODE_TYPE_AGGREGATE_STMT)
 {
 }
-AggregateStmt::AggregateStmt(NodeType type) : order_(NULL), group_(NULL), having_(NULL), SqlStmt (type)
+AggregateStmt::AggregateStmt(NodeType type) : order_(NULL), group_(NULL), having_(NULL),limit_(NULL), SqlStmt (type)
 {
 }
 AggregateStmt::~AggregateStmt()
@@ -522,7 +679,8 @@ void LimitStmt::optimize()
 const char* LimitStmt::toString()
 {
     sqlText_ = (" LIMIT ");
-    sqlText_ += expr_->toString();
+	if (expr_) 
+	    sqlText_ += expr_->toString();
     return sqlText_.c_str();
 }
 void LimitStmt::release()
@@ -550,7 +708,8 @@ void HavingStmt::optimize()
 const char* HavingStmt::toString()
 {
 	sqlText_ = ("HAVING ");
-	sqlText_ += havingExpr_->toString();
+	if (havingExpr_)
+		sqlText_ += havingExpr_->toString();
 	return sqlText_.c_str();
 }
 void HavingStmt::release()
@@ -577,7 +736,8 @@ void GroupByStmt::optimize()
 const char* GroupByStmt::toString()
 {
 	sqlText_ = ("GROUP BY ") ;	
-	sqlText_ += groupExpr_->toString();
+	if (groupExpr_)
+		sqlText_ += groupExpr_->toString();
 	return sqlText_.c_str();
 }
 void GroupByStmt::release()
@@ -605,7 +765,8 @@ void OrderByStmt::optimize()
 const char* OrderByStmt::toString()
 {
 	sqlText_ = ("ORDER BY "); 
-	sqlText_ += orderExpr_->toString();	
+	if (orderExpr_)
+		sqlText_ += orderExpr_->toString();	
 	return sqlText_.c_str();
 }
 void OrderByStmt::release()
@@ -657,9 +818,11 @@ void FunctionArgList::release()
     LIST* index = args_ ;
     for (; index; index = index->next){
         ASTNode* node = (ASTNode*) index->data ;
-        node->release();
-        delete node;
-		node = NULL; 
+		if (node) {
+        	node->release();
+	        delete node;
+			node = NULL;
+		} 
     }
 
     list_free (args_,0) ;
@@ -874,6 +1037,157 @@ const char* InOper::toString()
 	
 	sqlText_ += ")";
     return sqlText_.c_str();
+}
+
+//is not null operator.
+IsNotNullOper::IsNotNullOper () :left_(NULL), right_(NULL), Operator(NODE_TYPE_ISNOTNULL_OPER)
+{
+}
+IsNotNullOper::IsNotNullOper(ASTNode* left, ASTNode* right): left_(left),right_(right), Operator(NODE_TYPE_ISNOTNULL_OPER, "IS NOT NULL")
+{
+}
+IsNotNullOper::~IsNotNullOper ()
+{
+}
+void IsNotNullOper::optimize ()
+{
+	assert (false) ;
+}
+void IsNotNullOper::release()
+{
+	if (left_){
+		left_->release() ;
+		delete left_ ; 
+		left_ = NULL; 
+	}
+	if (right_) {
+		right_->release() ;
+		delete right_; 
+		right_ = NULL; 
+	}
+}
+const char* IsNotNullOper::toString ()
+{
+    if (left_) {
+        sqlText_ += left_->toString();
+    }
+
+    sqlText_ += " IS NOT NULL " ;
+
+    if (right_) {
+        sqlText_ += right_ ->toString();
+    }
+    return sqlText_.c_str();
+}
+//is null operator.
+IsNullOper::IsNullOper () :left_(NULL), right_(NULL), Operator(NODE_TYPE_ISNULL_OPER)
+{
+}
+IsNullOper::IsNullOper(ASTNode* left, ASTNode* right): left_(left),right_(right), Operator(NODE_TYPE_ISNULL_OPER, "IS NULL")
+{
+}
+IsNullOper::~IsNullOper ()
+{
+}
+void IsNullOper::optimize ()
+{
+    assert (false) ;
+}
+void IsNullOper::release()
+{
+    if (left_){
+        left_->release() ;
+        delete left_ ;
+        left_ = NULL;
+    }
+    if (right_) {
+        right_->release() ;
+        delete right_;
+        right_ = NULL;
+    }
+}
+const char* IsNullOper::toString ()
+{
+    if (left_) {
+        sqlText_ += left_->toString();
+    }
+
+    sqlText_ += " IS NULL " ;
+
+    if (right_) {
+        sqlText_ += right_ ->toString();
+    }
+    return sqlText_.c_str();
+}
+
+NotNullOper::NotNullOper(): left_(NULL), right_(NULL),Operator(NODE_TYPE_NOTNULL_OPER) 
+{
+}
+NotNullOper::NotNullOper(ASTNode* left, ASTNode* right): left_(left), right_(right), Operator(NODE_TYPE_NOTNULL_OPER) 
+{
+}
+NotNullOper::~NotNullOper ()
+{
+}
+void NotNullOper::release()
+{
+	if (left_) {
+		left_->release();
+		delete left_; 
+		left_ = NULL;
+	}
+	
+	if (right_) {
+		right_->release();
+		delete right_; 
+		right_= NULL;
+	}
+}
+void NotNullOper::optimize()	
+{
+	assert (false);
+}
+const char* NotNullOper::toString ()
+{
+    if (left_) {
+        sqlText_ += left_->toString();
+    }
+
+    sqlText_ += " NOTNULL " ;
+
+    if (right_) {
+        sqlText_ += right_ ->toString();
+    }
+    return sqlText_.c_str();
+}
+
+BlankOper::BlankOper() : param_(NULL)
+{
+}
+BlankOper::BlankOper(ASTNode* param): param_(param), Operator (NODE_TYPE_BLANK_OPER)
+{
+}
+BlankOper::~BlankOper()
+{
+}
+void BlankOper::optimize ()
+{
+	assert (false);
+}
+void BlankOper::release()
+{
+	if (param_) {
+		param_->release();
+		delete param_;
+		param_ = NULL; 
+	}
+}
+const char* BlankOper::toString()
+{
+	if (param_) 
+		return param_->toString();
+	else 
+		return ""; 
 }
 
 LogicalExpr::LogicalExpr (): left_(NULL), right_(NULL), oper_(NULL), Expr(NODE_TYPE_LOGICAL_EXPR)
@@ -1097,7 +1411,9 @@ ConstValue::ConstValue () : SqlStmt (NODE_TYPE_CONST)
 }
 ConstValue::ConstValue (int val) :  SqlStmt (NODE_TYPE_INT_CONST)
 {
-	sqlText_ = val;
+	char buf[128]={0};
+	sprintf (buf, "%d", val);
+	sqlText_.assign (buf);
 }
 ConstValue::ConstValue(double value) : SqlStmt (NODE_TYPE_FLOAT_CONST)
 {
@@ -1215,10 +1531,11 @@ void AlterOptList::release()
     for (;start; start= start->next) { //travel through list. to release all the table objs.
         ASTNode* node = (ASTNode*)start->data;
         DBUG_ASSERT(node->getNodeType() == NODE_TYPE_ALTER_TABLE_OPT);
-
-        node->release();
-        delete node;
-		node = NULL;
+		if (node) {
+        	node->release();
+	        delete node;
+			node = NULL;
+		}
     }
 
     list_free(options_, 0); //free the list itself.
@@ -1231,8 +1548,8 @@ const char* AlterOptList::toString()
     for (;start; start= start->next) { //travel through list. to release all the table objs.
         ASTNode* node = (ASTNode*)start->data;
         DBUG_ASSERT(node->getNodeType() == NODE_TYPE_ALTER_TABLE_OPT);
-		
-		sqlText_ += node->toString(); 
+		if (node)	
+			sqlText_ += node->toString(); 
     }
 	
 	return sqlText_.c_str();
@@ -1338,7 +1655,8 @@ const char* ExprList::toString()
     LIST* start = exprs_;
     for (;start; start= start->next) { //travel through list. to release all the table objs.
         Expr* node = (Expr*)start->data;
-        sqlText_ += node->toString();
+		if (node)
+	        sqlText_ += node->toString();
     }
 
     return sqlText_.c_str();
@@ -1375,9 +1693,11 @@ void A_ExprList::release()
     LIST* start = exprs_;
     for (;start; start= start->next) { //travel through list. to release all the table objs.
         Expr* node = (Expr*)start->data;
-        node->release();
-        delete node;
-        node = NULL;
+		if (node) {
+        	node->release();
+        	delete node;
+        	node = NULL;
+		}
     }
 
     list_free(exprs_, 0); //free the list itself.
@@ -1390,7 +1710,8 @@ const char* A_ExprList::toString()
     LIST* start = exprs_;
     for (;start; start= start->next) { //travel through list. to release all the table objs.
         ASTNode* node = (ASTNode*)start->data;
-        sqlText_ += node->toString();
+		if (node)
+	        sqlText_ += node->toString();
 	
 		if (start->next){
 			sqlText_ += " , ";
@@ -1415,7 +1736,7 @@ void A_ExprList::mergeList (A_ExprList* other)
     DBUG_ASSERT(false);
 }
 
-UpdateStmt::UpdateStmt(): orig_(NULL), expr_(NULL), where_ (NULL), SqlStmt(NODE_TYPE_UPDATE_STMT,STMT_UPDATE_TYPE)
+UpdateStmt::UpdateStmt(): orig_(NULL), expr_(NULL), from_(NULL),where_ (NULL), SqlStmt(NODE_TYPE_UPDATE_STMT,STMT_UPDATE_TYPE)
 {
 }
 UpdateStmt::~UpdateStmt()
@@ -1768,3 +2089,59 @@ const char* DropRuleStmt::sqlText ()
 		return sql_->Text();
 	return NULL; 
 }
+
+OptStmt::OptStmt () : SqlStmt(NODE_TYPE_OPTION_STMT)
+{
+}
+
+OptStmt::~OptStmt()
+{
+}
+void OptStmt::optimize()
+{
+	assert (false);
+}
+void OptStmt::release()
+{
+	assert (false);
+}
+const char* OptStmt::toString()
+{
+	assert (false); 
+	return NULL; 
+}
+
+OptAliasStmt::OptAliasStmt (ASTNode* stmt, bool isAs) : stmt_(stmt), isAs_ (isAs)
+{
+}
+
+OptAliasStmt::~OptAliasStmt ()
+{
+}
+
+void OptAliasStmt::optimize()
+{
+	assert (false);
+}
+void OptAliasStmt::release()
+{
+	if (stmt_) {
+		stmt_->release();
+		delete stmt_;
+		stmt_ = NULL; 
+	}
+}
+const char* OptAliasStmt::toString()
+{ 
+	if (isAs_){
+		sqlText_ +=" AS ";
+	}
+	if (stmt_) {
+		sqlText_ += stmt_->toString();
+	}
+
+	return sqlText_.c_str();
+}
+
+
+

@@ -95,7 +95,7 @@ whitespace_with_newline	({horiz_whitespace}*{newline}{special_whitespace}*)
 quote			'
 quotestop		{quote}{whitespace}*
 quotecontinue	{quote}{whitespace_with_newline}{quote}
-quotefail		{quote}{whitespace}*"-"
+quotefail		{quote}{whitespace}*"-" 
 
 /*The bit string definitions.*/
 xbstart			[bB]{quote}
@@ -225,7 +225,11 @@ other			.
 					/* ignore */
 				}
 
-<xc><<EOF>>		{ yyerror("unterminated /* comment"); }
+<xc><<EOF>>		{ 
+					yyerror("unterminated /* comment"); 
+                    yylval->str_ = strdup ("");
+                    return SCONST;
+				}
 
 {xbstart}		{
 					/* Binary bit type.
@@ -254,7 +258,11 @@ other			.
 <xb>{quotecontinue}	{
 					/* ignore */
 				}
-<xb><<EOF>>		{ yyerror("unterminated bit string literal"); }
+<xb><<EOF>>		{ 
+					yyerror("unterminated bit string literal"); 
+                    yylval->str_ = strdup ("");
+                    return SCONST;
+				}
 
 {xhstart}		{
 					/* Hexadecimal bit type.
@@ -275,7 +283,11 @@ other			.
 					yylval->str_ = LexHelper::litbufdup(yyscanner, yyextra);
 					return XCONST;
 				}
-<xh><<EOF>>		{ yyerror("unterminated hexadecimal string literal"); }
+<xh><<EOF>>		{ 
+					yyerror("unterminated hexadecimal string literal"); 
+                    yylval->str_ = strdup ("");
+                    return SCONST;
+				}
 
 {xnstart}		{
 					/* National character.
@@ -400,8 +412,9 @@ other			.
 						yyextra->utf16_first_part_ = c;
 						BEGIN(xeu);
 					}
-					else if (LexHelper::is_utf16_surrogate_second(c, yyscanner, yyextra))
+					else if (LexHelper::is_utf16_surrogate_second(c, yyscanner, yyextra)) {
 						yyerror("invalid Unicode surrogate pair");
+					}
 					else
 						LexHelper::addunicode(c, yyscanner, yyextra);
 				}
@@ -467,7 +480,11 @@ other			.
 					/* This is only needed for \ just before EOF */
 					LexHelper::addlitchar(yytext[0], yyscanner, yyextra);
 				}
-<xq,xe,xus><<EOF>>		{ yyerror("unterminated quoted string"); }
+<xq,xe,xus><<EOF>>	{ 
+						yyerror("unterminated quoted string"); 
+    	                yylval->str_ = strdup (""); 
+        	            return SCONST;
+					}
 
 {dolqdelim}		{
 					SET_YYLLOC();
@@ -512,7 +529,11 @@ other			.
 					/* This is only needed for $ inside the quoted text */
 					LexHelper::addlitchar(yytext[0], yyscanner, yyextra);
 				}
-<xdolq><<EOF>>	{ yyerror("unterminated dollar-quoted string"); }
+<xdolq><<EOF>>	{ 
+					yyerror("unterminated dollar-quoted string"); 
+    	            yylval->str_ = strdup (""); 
+        	        return SCONST;
+				}
 
 {xdstart}		{
 					SET_YYLLOC();
@@ -591,7 +612,11 @@ other			.
 <xd,xui>{xdinside}	{
 					LexHelper::addlit(yytext, yyleng, yyscanner, yyextra);
 				}
-<xd,xui><<EOF>>		{ yyerror("unterminated quoted identifier"); }
+<xd,xui><<EOF>>		{ 
+						yyerror("unterminated quoted identifier"); 
+                        yylval->str_ = strdup ("");
+                        return SCONST;
+					}
 
 {xufailed}	{
 					char	   *ident;

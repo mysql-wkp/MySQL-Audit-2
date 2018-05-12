@@ -10,18 +10,43 @@
 #include <lexical.h>
 #include <grammar.h>
 
-Parser::Parser()
+Parser::Parser() : m_lex_scanner_ (NULL)
 {
-
 }
 Parser::~Parser()
 {
+}
+void
+Parser::init_parser()
+{
+    //to load keywords list.
+    Lex::init_scanner_without_scannbuffer(&m_lex_scanner_, &m_bison_yy_.trans_yy_extra_, KeyWord::getScanKeyWord(),
+                                                            KeyWord::getKeyWordsNumber());
+    m_bison_yy_.have_lookahead_ = false;
+    m_bison_yy_.parsetree_ = NULL ;
+}
 
+void 
+Parser::init_parser(const char* str) 
+{
+	m_lex_scanner_ = NULL; 
+	m_bison_yy_.parsetree_ = NULL ; 
+
+	//to load keywords list.
+	m_lex_scanner_ = Lex::init_scanner(str, &m_lex_scanner_, &m_bison_yy_.trans_yy_extra_, KeyWord::getScanKeyWord(), 
+															KeyWord::getKeyWordsNumber());		
+	m_bison_yy_.have_lookahead_ = false; 
 }
 void 
-Parser::init_parser(TransYY_yy_extra_type* yy_extra_data) 
+Parser::init_parser(TransYY_yy_extra_type* yy_extra_data)
 {
 	yy_extra_data->parsetree_ = NULL ; 
+}
+
+void 
+Parser::finish_parser ()
+{
+	Lex::finish_scanner (&m_lex_scanner_, &m_bison_yy_.trans_yy_extra_) ;
 }
 
 int
@@ -148,7 +173,7 @@ Parser::raw_parser(const char* str)
 	TransYY_yy_extra_type bison_yy;	
 	int yyresult =0 ; 
 	
-	lex_scanner = Lex::init_scanner(str, &bison_yy.trans_yy_extra_, KeyWord::getScanKeyWord(), 
+	lex_scanner = Lex::init_scanner(str, &lex_scanner, &bison_yy.trans_yy_extra_, KeyWord::getScanKeyWord(), 
 															KeyWord::getKeyWordsNumber());		
 	bison_yy.have_lookahead_ = false; 
 
@@ -156,11 +181,28 @@ Parser::raw_parser(const char* str)
 	init_parser(&bison_yy);
 	yyresult = TransYY_yyparse(lex_scanner);	
 
-	Lex::finish_scanner (lex_scanner, &bison_yy.trans_yy_extra_) ;	
+	Lex::finish_scanner (&lex_scanner, &bison_yy.trans_yy_extra_) ;	
 	
 	//Here yyresult maybe is 1, but we also get a AST tree, because we do not comply with the grammar rules strictly.
 	if (yyresult && !bison_yy.parsetree_)
 		return NULL;
 	return bison_yy.parsetree_; 
 }
+ASTNode* Parser::raw_parser2(const char* str)
+{
+    //do gramm parser.
+    //init_parser(&m_bison_yy_);
+	Lex::setup_scannbuffer (str, &m_lex_scanner_, &m_bison_yy_.trans_yy_extra_);  	
+ 
+    int yyresult =0;
+    yyresult = TransYY_yyparse(m_lex_scanner_);
+	
+	Lex::cleanup_scannbuffer (&m_lex_scanner_, &m_bison_yy_.trans_yy_extra_);
+	
+    //Here yyresult maybe is 1, but we also get a AST tree, because we do not comply with the grammar rules strictly.
+    if (yyresult && !m_bison_yy_.parsetree_)
+        return NULL;
+    return m_bison_yy_.parsetree_;
+}
+
 

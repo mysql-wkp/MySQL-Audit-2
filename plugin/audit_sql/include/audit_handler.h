@@ -18,6 +18,7 @@
 
 #include <pcre.h>
 #include <limits.h>
+#include <parser.h>
 
 #define AUDIT_LOG_PREFIX "Audit Plugin:"
 #define AUDIT_PROTOCOL_VERSION "1.0"
@@ -636,9 +637,11 @@ public:
 		m_remote_port(8090),
 		m_socket_type(NULL),
 		m_dns_svr_addr(NULL),
-		m_do_parsing_sql(false)
+		m_do_parsing_sql(false),
+		m_parser (NULL)
 	{
-
+		m_parser = new Parser () ;
+		m_parser->init_parser();
 	}
 
 	virtual ~Audit_json_formatter()
@@ -648,6 +651,10 @@ public:
 			m_password_mask_regex_compiled = false;
 			pcre_free(m_password_mask_regex_preg);
 			m_password_mask_regex_preg = NULL;
+		}
+		if (m_parser) {
+			delete m_parser; 
+			m_parser = NULL;
 		}
 	}
 
@@ -718,6 +725,8 @@ public:
 	char* m_dns_svr_addr; 
 	
 	my_bool m_do_parsing_sql;
+private:
+	Parser* m_parser;
 protected:
 
 	Audit_json_formatter& operator =(const Audit_json_formatter& b);
