@@ -1592,6 +1592,10 @@ static void audit_mysql_parse(THD *thd, Parser_state *parser_state)
 	DBUG_ENTER("audit_mysql_parse");
 	if (!isMapInitialized()) {
     	if (sql_pattern_param_init (false)) {
+			Diagnostics_area **stmt_da = ((Diagnostics_area **) (((unsigned char *) thd)
+					                        + Audit_formatter::thd_offsets.stmt_da));
+			
+			(*stmt_da)->set_error_status (Diagnostics_area::DA_ERROR, "   unable to init cache." ,"Error"); 			
             sql_print_error(get_text("unable to init pattern2name or name2pattern cache. Aborting."));
 			Diagnostics_area **stmt_da = ((Diagnostics_area **) (((unsigned char *) thd)
 					                        + Audit_formatter::thd_offsets.stmt_da));
@@ -1606,6 +1610,10 @@ static void audit_mysql_parse(THD *thd, Parser_state *parser_state)
         }
    
         if (load_sql_pattern (thd)){
+			Diagnostics_area **stmt_da = ((Diagnostics_area **) (((unsigned char *) thd)
+					                        + Audit_formatter::thd_offsets.stmt_da));
+			
+			(*stmt_da)->set_error_status (Diagnostics_area::DA_ERROR, "   unable to load data from sql_pattern into cache." ,"Error"); 			
             sql_print_error(get_text("unable to load data into pattern2name or name2pattern cache. Aborting."));
 			Diagnostics_area **stmt_da = ((Diagnostics_area **) (((unsigned char *) thd)
 					                        + Audit_formatter::thd_offsets.stmt_da));
